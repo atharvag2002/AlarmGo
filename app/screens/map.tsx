@@ -1,126 +1,164 @@
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { getDistance } from "geolib";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import MapView, { LatLng, Marker, Region } from "react-native-maps";
+import MapView, { LatLng, Marker, Polyline, Region } from "react-native-maps";
 
-Notifications.requestPermissionsAsync();
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
-function sendNotification() {
-  Notifications.scheduleNotificationAsync({
+async function sendNotification() {
+  await Notifications.scheduleNotificationAsync({
     content: {
-      title: "hello",
-      body: "hello",
+      title: "You are close!",
+      body: "Less than 7KM remaining",
     },
     trigger: null,
   });
 }
 
-Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
-  });
-
-
- 
 export default function Map() {
-  const [userlocation, setUserlocation] = useState<Region | null>(null);
+  const [userLocation, setUserLocation] = useState<Region | null>(null);
   const [destination, setDestination] = useState<LatLng | null>(null);
-  const [search, setSearch] = useState<string>("");
-  const [loading, setloading] = useState<boolean>(false);
-  const [error , setError] = useState<string>("");  
-  useEffect(()=>{
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
 
-    console.log("destination",destination)
-    },[destination]);
+  const hasNotified = useRef(false);
+  const locationSubscription = useRef<Location.LocationSubscription | null>(null);
 
- 
-  const handleSearch = async () =>{
-    try{
-      console.log("search pressed");
+  // 📍 Continuous location tracking
+  useEffect(() => {
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") return;
 
-      setloading(true);
-      setError("");
-      setSearch(search);
+      locationSubscription.current = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 3000,
+          distanceInterval: 10,
+        },
+        (location) => {
+          setUserLocation({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          });
+        }
+      );
+    })();
 
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${search}`);
+    return () => {
+      locationSubscription.current?.remove();
+    };
+  }, []);
+
+  // 🔍 Search destination
+  const handleSearch = async () => {
+    try {
+      setLoading(true);
+      hasNotified.current = false; // reset alarm
+
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${search}`
+      );
       const data = await response.json();
-      console.log(data);
+
+      if (data.length === 0) return;
 
       setDestination({
-        latitude:parseFloat(data[0].lat),
-        longitude:parseFloat(data[0].lon)
-      })
-
-     
-     
-
+        latitude: parseFloat(data[0].lat),
+        longitude: parseFloat(data[0].lon),
+      });
+    } catch (err) {
+      console.log(err);
+    } finally {
+      setLoading(false);
     }
-    catch{}
-    finally{
+  };
 
-    }
-
-
-  }
-
-
+  // 📏 Distance calculation
   let distance = 0;
-  if (userlocation && destination) {
+
+  if (userLocation && destination) {
     distance = getDistance(
-      { latitude: userlocation.latitude, longitude: userlocation.longitude },
-      { latitude: destination.latitude, longitude: destination.longitude }
+      {
+        latitude: userLocation.latitude,
+        longitude: userLocation.longitude,
+      },
+      {
+        latitude: destination.latitude,
+        longitude: destination.longitude,
+      }
     );
   }
 
-
+  // 🚨 Proximity Logic
   useEffect(() => {
-    (async () => {
-      const { status } =
-        await Location.requestForegroundPermissionsAsync();
+    if (!destination || !userLocation) return;
 
-      if (status !== "granted") return;
-
-      const location = await Location.getCurrentPositionAsync({});
-
-      setUserlocation({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      });
-    })();
-  }, []);
+    if (distance < 7000 && !hasNotified.current) {
+      sendNotification();
+      hasNotified.current = true;
+    }
+  }, [distance, destination, userLocation]);
 
   return (
     <View style={styles.container}>
-      <TextInput style={styles.textinput} 
-      placeholder="Enter Destination..."
-      onChangeText={setSearch} 
-      value={search} />
+      <TextInput
+        style={styles.textinput}
+        placeholder="Enter Destination..."
+        value={search}
+        onChangeText={setSearch}
+      />
 
       <MapView
         style={styles.map}
         showsUserLocation
-        region={userlocation ?? undefined}
+        region={userLocation ?? undefined}
       >
         {destination && <Marker coordinate={destination} />}
+        {destination && userLocation && (
+        <Polyline
+          coordinates={[
+            {
+              latitude: userLocation.latitude,
+              longitude: userLocation.longitude,
+            },
+            destination,
+          ]}
+          strokeWidth={3}
+          strokeColor="black"
+          lineDashPattern={[15,20]}
+       
+        />
+      )}
       </MapView>
 
-      <Pressable style={styles.notification} onPress={handleSearch}>
-        <Text style={styles.buttonText}>Search</Text>
+      <Pressable
+        style={[styles.notification, loading && { backgroundColor: "grey" }]}
+        onPress={handleSearch}
+        disabled={loading}
+      >
+        <Text style={styles.buttonText}>
+          {loading ? "Searching..." : "Search"}
+        </Text>
       </Pressable>
 
       <Text style={styles.text}>
-        USER: {userlocation?.longitude} | {userlocation?.latitude}{"\n"}
-        DESTINATION: {destination?.longitude} | {destination?.latitude}
+        USER: {userLocation?.latitude} | {userLocation?.longitude}
+        {"\n"}
+        DESTINATION: {destination?.latitude} | {destination?.longitude}
         {"\n\n"}
-        DISTANCE: {distance} M
+        DISTANCE: {distance /1000} KM
       </Text>
     </View>
   );
@@ -128,6 +166,7 @@ export default function Map() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+
   map: { flex: 1 },
 
   textinput: {
@@ -138,7 +177,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     backgroundColor: "#fff",
     fontSize: 16,
-    marginBottom: 20,
     position: "absolute",
     top: 20,
     left: 15,
