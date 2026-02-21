@@ -180,4 +180,99 @@ const styles = StyleSheet.create({
     color: "white",
     fontWeight: "bold",
   },
+
+  pinSelectionOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    justifyContent: "space-between",
+    zIndex: 5,
+    pointerEvents: "box-none",
+  },
+
+  pinSelectionInstructions: {
+    backgroundColor: "white",
+    padding: 15,
+    margin: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    marginTop: 100,
+    pointerEvents: "auto",
+  },
+
+  pinSelectionText: {
+    fontSize: 16,
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+
+  pinSelectionButtons: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    pointerEvents: "auto",
+  },
+
+  pinButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    minWidth: 100,
+    alignItems: "center",
+  },
+
+  cancelPinButton: {
+    backgroundColor: "#ccc",
+  },
+
+  confirmPinButton: {
+    backgroundColor: "#2196F3",
+  },
+
+  pinButtonText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+
+  centerPinContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    pointerEvents: "none",
+    zIndex: 6,
+  },
+
+  centerPin: {
+    alignItems: "center",
+  },
+
+  pinHead: {
+    width: 20,
+    height: 20,
+    backgroundColor: "#FF0000",
+    borderRadius: 10,
+    borderWidth: 3,
+    borderColor: "white",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+
+  pinShaft: {
+    width: 4,
+    height: 30,
+    backgroundColor: "#FF0000",
+    marginTop: -2,
+  },
 });
