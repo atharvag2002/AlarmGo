@@ -2,8 +2,15 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { getDistance } from "geolib";
 import { useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import MapView, { LatLng, Marker, Polyline, Region } from "react-native-maps";
+import {
+  Keyboard,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import MapView, { LatLng, Marker, Polyline } from "react-native-maps";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -25,35 +32,38 @@ async function sendNotification() {
 }
 
 export default function Map() {
-  const [userLocation, setUserLocation] = useState<Region | null>(null);
+  const [userLocation, setUserLocation] = useState<LatLng | null>(null);
   const [destination, setDestination] = useState<LatLng | null>(null);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [destinationSelected, setDestinationSelected] = useState(false);
 
   const hasNotified = useRef(false);
-  const locationSubscription = useRef<Location.LocationSubscription | null>(null);
+  const locationSubscription =
+    useRef<Location.LocationSubscription | null>(null);
+  const mapRef = useRef<MapView>(null);
 
-  // 📍 Continuous location tracking
+  // 📍 Continuous tracking
   useEffect(() => {
     (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      const { status } =
+        await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") return;
 
-      locationSubscription.current = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 3000,
-          distanceInterval: 10,
-        },
-        (location) => {
-          setUserLocation({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          });
-        }
-      );
+      locationSubscription.current =
+        await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 3000,
+            distanceInterval: 10,
+          },
+          (location) => {
+            setUserLocation({
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            });
+          }
+        );
     })();
 
     return () => {
@@ -61,47 +71,69 @@ export default function Map() {
     };
   }, []);
 
-  // 🔍 Search destination
-  const handleSearch = async () => {
-    try {
-      setLoading(true);
-      hasNotified.current = false; // reset alarm
-
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${search}`
-      );
-      const data = await response.json();
-
-      if (data.length === 0) return;
-
-      setDestination({
-        latitude: parseFloat(data[0].lat),
-        longitude: parseFloat(data[0].lon),
-      });
-    } catch (err) {
-      console.log(err);
-    } finally {
-      setLoading(false);
+  // 📍 Center on user when location is first available
+  useEffect(() => {
+    if (userLocation) {
+      centerOnUser();
     }
-  };
+  }, [userLocation]);
 
-  // 📏 Distance calculation
-  let distance = 0;
+  const centerOnUser = () => {
+    if (!userLocation || !mapRef.current) return;
 
-  if (userLocation && destination) {
-    distance = getDistance(
+    mapRef.current.animateToRegion(
       {
         latitude: userLocation.latitude,
         longitude: userLocation.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
       },
+      500
+    );
+  };
+
+  // 🔎 Suggestions (debounced)
+  useEffect(() => {
+    if (search.length < 3 || destinationSelected) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timeout = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${search}`
+        );
+        const data = await res.json();
+        setSuggestions(data.slice(0, 5));
+      } catch (err) {
+        console.log(err);
+      }
+    }, 500);
+
+    return () => clearTimeout(timeout);
+  }, [search, destinationSelected]);
+
+  // 📍 Auto zoom
+  useEffect(() => {
+    if (!destination || !userLocation || !mapRef.current) return;
+
+    mapRef.current.fitToCoordinates(
+      [userLocation, destination],
       {
-        latitude: destination.latitude,
-        longitude: destination.longitude,
+        edgePadding: { top: 150, right: 50, bottom: 150, left: 50 },
+        animated: true,
       }
     );
-  }
+  }, [destination]);
 
-  // 🚨 Proximity Logic
+  // 📏 Distance
+  const distance =
+    userLocation && destination
+      ? getDistance(userLocation, destination)
+      : 0;
+
+  // 🚨 Proximity
   useEffect(() => {
     if (!destination || !userLocation) return;
 
@@ -109,57 +141,91 @@ export default function Map() {
       sendNotification();
       hasNotified.current = true;
     }
-  }, [distance, destination, userLocation]);
+  }, [distance]);
 
   return (
     <View style={styles.container}>
-      <TextInput
-        style={styles.textinput}
-        placeholder="Enter Destination..."
-        value={search}
-        onChangeText={setSearch}
-      />
-
+      {/* Map as background */}
       <MapView
-        style={styles.map}
+        ref={mapRef}
+        style={StyleSheet.absoluteFillObject}
         showsUserLocation
-        region={userLocation ?? undefined}
+        showsMyLocationButton={false} 
       >
         {destination && <Marker coordinate={destination} />}
+
         {destination && userLocation && (
-        <Polyline
-          coordinates={[
-            {
-              latitude: userLocation.latitude,
-              longitude: userLocation.longitude,
-            },
-            destination,
-          ]}
-          strokeWidth={3}
-          strokeColor="black"
-          lineDashPattern={[15,20]}
-       
-        />
-      )}
+          <Polyline
+            coordinates={[userLocation, destination]}
+            strokeWidth={3}
+            strokeColor="black"
+            lineDashPattern={[15, 20]}
+          />
+        )}
       </MapView>
 
-      <Pressable
-        style={[styles.notification, loading && { backgroundColor: "grey" }]}
-        onPress={handleSearch}
-        disabled={loading}
-      >
-        <Text style={styles.buttonText}>
-          {loading ? "Searching..." : "Search"}
-        </Text>
+      {/* Overlay UI */}
+      <View style={styles.overlay}>
+        <View style={styles.searchRow}>
+          <TextInput
+            style={styles.input}
+            placeholder="Search destination..."
+            value={search}
+            onChangeText={setSearch}
+          />
+
+          {search.length > 0 && (
+            <Pressable
+              onPress={() => {
+                setSearch("");
+                setSuggestions([]);
+                setDestination(null);
+                setDestinationSelected(false);
+                hasNotified.current = false;
+              }}
+              style={styles.clearBtn}
+            >
+              <Text style={{ fontWeight: "bold" }}>X</Text>
+            </Pressable>
+          )}
+        </View>
+
+        {suggestions.length > 0 && (
+          <View style={styles.suggestionBox}>
+            {suggestions.map((item) => (
+              <Pressable
+                key={item.place_id}
+                onPress={() => {
+                  setDestination({
+                    latitude: parseFloat(item.lat),
+                    longitude: parseFloat(item.lon),
+                  });
+                  setSearch(item.display_name);
+                  setSuggestions([]);
+                  setDestinationSelected(true);
+                  hasNotified.current = false;
+                  Keyboard.dismiss();
+                }}
+              >
+                <Text style={styles.suggestionText}>
+                  {item.display_name}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </View>
+
+      <Pressable style={styles.centerButton} onPress={centerOnUser}>
+        <Text>📍</Text>
       </Pressable>
 
-      <Text style={styles.text}>
-        USER: {userLocation?.latitude} | {userLocation?.longitude}
-        {"\n"}
-        DESTINATION: {destination?.latitude} | {destination?.longitude}
-        {"\n\n"}
-        DISTANCE: {distance /1000} KM
-      </Text>
+      {/* Bottom Info */}
+      <View style={styles.bottomCard}>
+        <Text style={{ color: "white" }}>
+          Distance: {(distance / 1000).toFixed(2)} KM
+        </Text>
+      </View>
     </View>
   );
 }
@@ -167,51 +233,64 @@ export default function Map() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
 
-  map: { flex: 1 },
-
-  textinput: {
-    height: 50,
-    borderColor: "#ccc",
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    backgroundColor: "#fff",
-    fontSize: 16,
-    position: "absolute",
-    top: 20,
-    left: 15,
-    right: 15,
-    zIndex: 10,
-    elevation: 10,
+  overlay: {
+    paddingTop: 20,
+    paddingHorizontal: 15,
   },
 
-  text: {
-    backgroundColor: "black",
+  centerButton: {
+    position: "absolute",
+    bottom: 120,
+    right: 20,
+    backgroundColor: "white",
+    padding: 15,
+    borderRadius: 30,
+    elevation: 5,
+  },
+
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  input: {
+    flex: 1,
+    height: 50,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    backgroundColor: "white",
+  },
+
+  clearBtn: {
+    marginLeft: 8,
+    padding: 10,
+    backgroundColor: "white",
+    borderRadius: 8,
+  },
+
+  suggestionBox: {
+    marginTop: 8,
+    backgroundColor: "white",
+    borderRadius: 8,
+    padding: 10,
+    maxHeight: 200,
+  },
+
+  suggestionText: {
+    paddingVertical: 8,
+    borderBottomWidth: 0.5,
+    borderColor: "#ddd",
+  },
+
+  bottomCard: {
     position: "absolute",
     bottom: 30,
     left: 15,
     right: 15,
-    padding: 10,
-    color: "white",
-    zIndex: 10,
-    elevation: 10,
-  },
-
-  notification: {
     backgroundColor: "black",
-    position: "absolute",
-    top: 90,
-    left: 15,
-    right: 15,
-    padding: 12,
-    borderRadius: 8,
-    zIndex: 10,
-    elevation: 10,
-  },
-
-  buttonText: {
-    color: "white",
-    textAlign: "center",
-    fontSize: 16,
+    padding: 15,
+    borderRadius: 10,
   },
 });
