@@ -20,7 +20,17 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.atharva125.alarmgo"
+      "package": "com.atharva125.alarmgo",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "POST_NOTIFICATIONS",
+        "WAKE_LOCK",
+        "RECEIVE_BOOT_COMPLETED"
+      ],
+      "useNextNotificationsApi": true,
+      "backgroundModes": ["location"]
     },
     "web": {
       "output": "static",

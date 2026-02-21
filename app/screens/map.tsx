@@ -2,6 +2,8 @@ import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { getDistance } from "geolib";
 import { useEffect, useRef, useState } from "react";
+import { styles } from "../styles/map";
+
 import {
   Keyboard,
   Pressable,
@@ -21,11 +23,12 @@ Notifications.setNotificationHandler({
   }),
 });
 
-async function sendNotification() {
+async function sendNotification(triggerDistance: number) {
   await Notifications.scheduleNotificationAsync({
     content: {
       title: "You are close!",
-      body: "Less than 7KM remaining",
+      body: `Less than ${(triggerDistance / 1000).toFixed(0)} KM remaining`,
+      sound: "alarm.mp3", // Custom sound file
     },
     trigger: null,
   });
@@ -37,19 +40,32 @@ export default function Map() {
   const [search, setSearch] = useState("");
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [destinationSelected, setDestinationSelected] = useState(false);
+  const [fabMenuOpen, setFabMenuOpen] = useState(false);
+  const [triggerDistance, setTriggerDistance] = useState(7000);
+  const [showDistanceInput, setShowDistanceInput] = useState(false);
+  const [distanceInput, setDistanceInput] = useState("");
 
   const hasNotified = useRef(false);
   const locationSubscription =
     useRef<Location.LocationSubscription | null>(null);
   const mapRef = useRef<MapView>(null);
 
-  // 📍 Continuous tracking
+  // 📍 Continuous tracking (background enabled)
   useEffect(() => {
     (async () => {
-      const { status } =
+      // Request foreground permissions first
+      const { status: foregroundStatus } =
         await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") return;
+      if (foregroundStatus !== "granted") return;
 
+      // Then request background permissions
+      const { status: backgroundStatus } =
+        await Location.requestBackgroundPermissionsAsync();
+      if (backgroundStatus !== "granted") {
+        console.log("Background location permission not granted");
+      }
+
+      // Start location tracking with background capability
       locationSubscription.current =
         await Location.watchPositionAsync(
           {
@@ -71,7 +87,14 @@ export default function Map() {
     };
   }, []);
 
-  // 📍 Center on user when location is first available
+  // � Request notification permissions
+  useEffect(() => {
+    (async () => {
+      await Notifications.requestPermissionsAsync();
+    })();
+  }, []);
+
+  // �� Center on user when location is first available
   useEffect(() => {
     if (userLocation) {
       centerOnUser();
@@ -137,11 +160,21 @@ export default function Map() {
   useEffect(() => {
     if (!destination || !userLocation) return;
 
-    if (distance < 7000 && !hasNotified.current) {
-      sendNotification();
+    if (distance < triggerDistance && !hasNotified.current) {
+      sendNotification(triggerDistance);
       hasNotified.current = true;
     }
-  }, [distance]);
+  }, [distance, triggerDistance]);
+
+  const handleSetDistance = () => {
+    const num = parseInt(distanceInput, 10);
+    if (!isNaN(num) && num > 0) {
+      setTriggerDistance(num);
+      hasNotified.current = false; // Reset notification if distance changes
+    }
+    setShowDistanceInput(false);
+    setDistanceInput("");
+  };
 
   return (
     <View style={styles.container}>
@@ -216,81 +249,77 @@ export default function Map() {
         )}
       </View>
 
-      <Pressable style={styles.centerButton} onPress={centerOnUser}>
-        <Text>📍</Text>
-      </Pressable>
+      {/* Distance Input Overlay */}
+      {showDistanceInput && (
+        <View style={styles.distanceInputOverlay}>
+          <View style={styles.distanceInputContainer}>
+            <Text style={styles.distanceInputLabel}>Set Trigger Distance (meters)</Text>
+            <TextInput
+              style={styles.distanceInput}
+              placeholder="Enter distance in meters"
+              value={distanceInput}
+              onChangeText={setDistanceInput}
+              keyboardType="numeric"
+              autoFocus
+            />
+            <View style={styles.distanceButtons}>
+              <Pressable 
+                style={[styles.distanceButton, styles.cancelButton]} 
+                onPress={() => setShowDistanceInput(false)}
+              >
+                <Text style={styles.distanceButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable 
+                style={[styles.distanceButton, styles.saveButton]} 
+                onPress={handleSetDistance}
+              >
+                <Text style={styles.distanceButtonText}>Save</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* FAB Menu */}
+      <View style={styles.fabContainer}>
+        {/* Menu Items */}
+        {fabMenuOpen && (
+          <View style={styles.fabMenu}>
+            <Pressable style={styles.fabMenuItem} onPress={centerOnUser}>
+              <Text style={styles.fabMenuIcon}>🎯</Text>
+            </Pressable>
+            
+            <Pressable 
+              style={styles.fabMenuItem} 
+              onPress={() => setShowDistanceInput(true)}
+            >
+              <Text style={styles.fabMenuIcon}>📏</Text>
+            </Pressable>
+            
+            <Pressable style={styles.fabMenuItem}>
+              <Text style={styles.fabMenuIcon}>📍</Text>
+            </Pressable>
+          </View>
+        )}
+        
+        {/* Main FAB Button */}
+        <Pressable 
+          style={[styles.fabButton, fabMenuOpen && styles.fabButtonActive]} 
+          onPress={() => setFabMenuOpen(!fabMenuOpen)}
+        >
+          <Text style={styles.fabButtonText}>⋮</Text>
+        </Pressable>
+      </View>
 
       {/* Bottom Info */}
       <View style={styles.bottomCard}>
         <Text style={{ color: "white" }}>
           Distance: {(distance / 1000).toFixed(2)} KM
         </Text>
+        <Text style={{ color: "white", marginTop: 4 }}>
+          Trigger: {(triggerDistance / 1000).toFixed(0)} KM
+        </Text>
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-
-  overlay: {
-    paddingTop: 20,
-    paddingHorizontal: 15,
-  },
-
-  centerButton: {
-    position: "absolute",
-    bottom: 120,
-    right: 20,
-    backgroundColor: "white",
-    padding: 15,
-    borderRadius: 30,
-    elevation: 5,
-  },
-
-  searchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  input: {
-    flex: 1,
-    height: 50,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    backgroundColor: "white",
-  },
-
-  clearBtn: {
-    marginLeft: 8,
-    padding: 10,
-    backgroundColor: "white",
-    borderRadius: 8,
-  },
-
-  suggestionBox: {
-    marginTop: 8,
-    backgroundColor: "white",
-    borderRadius: 8,
-    padding: 10,
-    maxHeight: 200,
-  },
-
-  suggestionText: {
-    paddingVertical: 8,
-    borderBottomWidth: 0.5,
-    borderColor: "#ddd",
-  },
-
-  bottomCard: {
-    position: "absolute",
-    bottom: 30,
-    left: 15,
-    right: 15,
-    backgroundColor: "black",
-    padding: 15,
-    borderRadius: 10,
-  },
-});
